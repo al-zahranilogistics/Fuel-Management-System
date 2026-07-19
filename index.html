@@ -125,7 +125,6 @@
                 <h2 data-i18n="welcome_rep">مرحباً مندوب</h2>
                 <p id="rep-info"></p>
                 <button class="btn btn-primary" onclick="app.startFueling()" data-i18n="start_fueling">بدء عملية التعبئة</button>
-                <button class="btn btn-secondary" onclick="app.showView('extra-fuel-public-view')" data-i18n="request_extra">طلب وقود إضافي</button>
             </div>
         </div>
 
@@ -466,26 +465,18 @@
                     }, { enableHighAccuracy: true }
                 );
             },
-// تعديل: دالة تهيئة الكاميرا لإجبار الكاميرا الخلفية
-async initCamera() {
-    try {
-        if (state.stream) state.stream.getTracks().forEach(t => t.stop());
-        // إجبار الكاميرا الخلفية عبر exact environment
-        state.stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: { exact: 'environment' } }, 
-            audio: false 
-        });
-        document.getElementById('camera-feed').srcObject = state.stream;
-    } catch (e) {
-        // إذا فشلت الكاميرا الخلفية، حاول أي كاميرا متاحة كخيار احتياطي
-        alert("يرجى التأكد من توفر الكاميرا الخلفية.");
-        this.goHome();
-    }
-},
 
-// تعديل: حذف زر طلب الوقود من واجهة المندوب (rep-view)
-// في الـ HTML الخاص بك، قم بحذف هذا السطر من داخل div #rep-view:
-// <button class="btn btn-secondary" onclick="app.showView('extra-fuel-public-view')" data-i18n="request_extra">طلب وقود إضافي</button>
+            async initCamera() {
+                try {
+                    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+                    // استخدام الكاميرا الخلفية بشكل مثالي بدلاً من الإجبار، لزيادة المرونة
+                    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+                    document.getElementById('camera-feed').srcObject = state.stream;
+                } catch (e) {
+                    alert("يجب إعطاء الصلاحية للكاميرا لالتقاط الصور والفيديو.");
+                    this.goHome();
+                }
+            },
 
             async captureStep() {
                 this.showLoading(true);
