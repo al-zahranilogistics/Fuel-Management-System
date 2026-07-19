@@ -466,18 +466,26 @@
                     }, { enableHighAccuracy: true }
                 );
             },
+// تعديل: دالة تهيئة الكاميرا لإجبار الكاميرا الخلفية
+async initCamera() {
+    try {
+        if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+        // إجبار الكاميرا الخلفية عبر exact environment
+        state.stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: { exact: 'environment' } }, 
+            audio: false 
+        });
+        document.getElementById('camera-feed').srcObject = state.stream;
+    } catch (e) {
+        // إذا فشلت الكاميرا الخلفية، حاول أي كاميرا متاحة كخيار احتياطي
+        alert("يرجى التأكد من توفر الكاميرا الخلفية.");
+        this.goHome();
+    }
+},
 
-            async initCamera() {
-                try {
-                    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
-                    // إجبار الكاميرا الخلفية عبر (environment)
-                    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-                    document.getElementById('camera-feed').srcObject = state.stream;
-                } catch (e) {
-                    alert("يجب إعطاء الصلاحية للكاميرا لالتقاط الصور والفيديو.");
-                    this.goHome();
-                }
-            },
+// تعديل: حذف زر طلب الوقود من واجهة المندوب (rep-view)
+// في الـ HTML الخاص بك، قم بحذف هذا السطر من داخل div #rep-view:
+// <button class="btn btn-secondary" onclick="app.showView('extra-fuel-public-view')" data-i18n="request_extra">طلب وقود إضافي</button>
 
             async captureStep() {
                 this.showLoading(true);
