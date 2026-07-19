@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام إدارة الوقود - Fuel Management System</title>
+    <!-- Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- SheetJS for Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #1976d2; --primary-dark: #115293;
+            --secondary: #ff9800; --bg: #f5f5f5; --surface: #ffffff;
+            --text: #333333; --text-light: #777777; --border: #e0e0e0;
+            --error: #f44336; --success: #4caf50;
+        }
+        [data-theme="dark"] {
+            --primary: #90caf9; --primary-dark: #64b5f6;
+            --bg: #121212; --surface: #1e1e1e;
+            --text: #ffffff; --text-light: #bbbbbb; --border: #333333;
+        }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; transition: background 0.3s, color 0.3s; }
+        body { margin: 0; padding: 0; background-color: var(--bg); color: var(--text); }
+        .hidden { display: none !important; }
+        
+        /* Navbar */
+        nav { background-color: var(--surface); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .nav-brand { font-size: 1.5rem; font-weight: bold; color: var(--primary); }
+        .nav-actions button { background: none; border: none; cursor: pointer; color: var(--text); margin-left: 10px; font-size: 1.2rem; }
+        
+        /* Containers */
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+        .card { background-color: var(--surface); padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 2rem; }
+        
+        /* Forms & Inputs */
+        .form-group { margin-bottom: 1.5rem; }
+        label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 0.8rem; border: 1px solid var(--border); border-radius: 4px; background-color: var(--surface); color: var(--text); }
+        input:focus { outline: none; border-color: var(--primary); }
+        
+        /* Buttons */
+        .btn { padding: 0.8rem 1.5rem; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-align: center; display: inline-block; }
+        .btn-primary { background-color: var(--primary); color: #fff; }
+        .btn-primary:hover { background-color: var(--primary-dark); }
+        .btn-secondary { background-color: var(--secondary); color: #fff; }
+        .btn-danger { background-color: var(--error); color: #fff; }
+        .btn-block { width: 100%; }
+        
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 1rem; text-align: right; border-bottom: 1px solid var(--border); }
+        [dir="ltr"] th, [dir="ltr"] td { text-align: left; }
+        th { background-color: var(--bg); }
+        
+        /* Fueling UI */
+        .step-container { text-align: center; }
+        #camera-feed { width: 100%; max-width: 600px; border-radius: 8px; background: #000; margin: 1rem auto; display: block; }
+        .watermark-canvas { display: none; }
+        
+        /* Toast */
+        #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 1rem 2rem; border-radius: 4px; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+        
+        /* Loader */
+        #loader { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 2000; color: white; font-size: 1.5rem; flex-direction: column; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .tab { padding: 10px 20px; cursor: pointer; border-bottom: 3px solid transparent; }
+        .tab.active { border-bottom-color: var(--primary); font-weight: bold; color: var(--primary); }
+    </style>
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav>
+        <div class="nav-brand" data-i18n="app_title">نظام إدارة الوقود</div>
+        <div class="nav-actions">
+            <button onclick="app.toggleTheme()"><span class="material-icons">brightness_6</span></button>
+            <button onclick="app.toggleLanguage()"><span class="material-icons">language</span></button>
+            <button id="logout-btn" class="hidden" onclick="app.logout()"><span class="material-icons">logout</span></button>
+        </div>
+    </nav>
+
+    <div class="container" id="main-content">
+        <!-- Auth View -->
+        <div id="auth-view" class="card" style="max-width: 500px; margin: auto;">
+            <h2 data-i18n="login">تسجيل الدخول</h2>
+            <div class="form-group">
+                <label data-i18n="username">اسم المستخدم</label>
+                <input type="text" id="login-username">
+            </div>
+            <div class="form-group">
+                <label data-i18n="password">كلمة المرور</label>
+                <input type="password" id="login-password">
+            </div>
+            <button class="btn btn-primary btn-block" onclick="app.login()" data-i18n="login_btn">دخول</button>
+            <div style="margin-top: 15px; text-align: center;">
+                <a href="#" onclick="app.showView('register-view')" data-i18n="register_new_rep">تسجيل مندوب جديد</a> | 
+                <a href="#" onclick="app.showView('extra-fuel-public-view')" data-i18n="request_extra_fuel">طلب وقود إضافي (عام)</a>
+            </div>
+        </div>
+
+        <!-- Register View -->
+        <div id="register-view" class="card hidden" style="max-width: 600px; margin: auto;">
+            <h2 data-i18n="register">تسجيل مندوب جديد</h2>
+            <div class="form-group"><label data-i18n="fullname">الاسم الكامل</label><input type="text" id="reg-fullname"></div>
+            <div class="form-group"><label data-i18n="username">اسم المستخدم</label><input type="text" id="reg-username"></div>
+            <div class="form-group"><label data-i18n="password">كلمة المرور</label><input type="password" id="reg-password"></div>
+            <div class="form-group"><label data-i18n="plate">رقم اللوحة</label><input type="text" id="reg-plate"></div>
+            <div class="form-group"><label data-i18n="project">المشروع</label><input type="text" id="reg-project"></div>
+            <button class="btn btn-primary btn-block" onclick="app.register()" data-i18n="register_btn">تسجيل</button>
+            <div style="margin-top: 15px; text-align: center;">
+                <a href="#" onclick="app.showView('auth-view')" data-i18n="back_to_login">العودة لتسجيل الدخول</a>
+            </div>
+        </div>
+
+        <!-- Rep Dashboard -->
+        <div id="rep-view" class="hidden">
+            <div class="card">
+                <h2 data-i18n="welcome_rep">مرحباً مندوب</h2>
+                <p id="rep-info"></p>
+                <button class="btn btn-primary" onclick="app.startFueling()" data-i18n="start_fueling">بدء عملية التعبئة</button>
+                <button class="btn btn-secondary" onclick="app.showView('extra-fuel-public-view')" data-i18n="request_extra">طلب وقود إضافي</button>
+            </div>
+        </div>
+
+        <!-- Fueling Wizard -->
+        <div id="fueling-view" class="card hidden">
+            <h2 id="fueling-step-title">الخطوة 1</h2>
+            <div class="step-container">
+                <p id="gps-status" style="color: var(--error);" data-i18n="gps_waiting">جاري البحث عن الموقع...</p>
+                <video id="camera-feed" autoplay playsinline></video>
+                <canvas id="watermark-canvas" class="watermark-canvas"></canvas>
+                <button id="capture-btn" class="btn btn-primary btn-block" onclick="app.captureStep()" disabled data-i18n="capture">التقاط</button>
+                <button id="stop-record-btn" class="btn btn-danger btn-block hidden" onclick="app.stopRecording()" data-i18n="stop_recording">إيقاف التسجيل</button>
+            </div>
+        </div>
+
+        <!-- Admin Dashboard -->
+        <div id="admin-view" class="hidden">
+            <div class="card">
+                <h2 data-i18n="admin_panel">لوحة تحكم الإدارة</h2>
+                <div class="tabs">
+                    <div class="tab active" onclick="app.switchAdminTab('reps')" data-i18n="reps">المندوبين</div>
+                    <div class="tab" onclick="app.switchAdminTab('operations')" data-i18n="operations">عمليات التعبئة</div>
+                    <div class="tab" onclick="app.switchAdminTab('extra')" data-i18n="extra_fuel">الوقود الإضافي</div>
+                    <div class="tab" onclick="app.switchAdminTab('duplicates')" data-i18n="duplicates">محاولات التلاعب</div>
+                </div>
+                
+                <div id="tab-reps" class="admin-tab">
+                    <button class="btn btn-secondary" onclick="app.exportTable('table-reps', 'Representatives')" data-i18n="export_excel">تصدير Excel</button>
+                    <div style="overflow-x: auto;">
+                        <table id="table-reps">
+                            <thead><tr><th>ID</th><th>Name</th><th>Username</th><th>Plate</th><th>Actions</th></tr></thead>
+                            <tbody id="tbody-reps"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="tab-operations" class="admin-tab hidden">
+                    <button class="btn btn-secondary" onclick="app.exportTable('table-ops', 'Operations')" data-i18n="export_excel">تصدير Excel</button>
+                    <div style="overflow-x: auto;">
+                        <table id="table-ops">
+                            <thead><tr><th>Token</th><th>Rep</th><th>Plate</th><th>Date/Time</th><th>Location</th><th>Media</th></tr></thead>
+                            <tbody id="tbody-ops"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="tab-extra" class="admin-tab hidden">
+                     <div style="overflow-x: auto;">
+                        <table id="table-extra">
+                            <thead><tr><th>Plate</th><th>Amount</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead>
+                            <tbody id="tbody-extra"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="tab-duplicates" class="admin-tab hidden">
+                     <div style="overflow-x: auto;">
+                        <table id="table-duplicates">
+                            <thead><tr><th>Rep Name</th><th>Plate</th><th>Step</th><th>Time</th></tr></thead>
+                            <tbody id="tbody-duplicates"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Public Extra Fuel Form -->
+        <div id="extra-fuel-public-view" class="card hidden" style="max-width: 600px; margin: auto;">
+            <h2 data-i18n="request_extra_fuel">طلب وقود إضافي</h2>
+            <div class="form-group"><label data-i18n="plate">رقم اللوحة</label><input type="text" id="ex-plate"></div>
+            <div class="form-group"><label data-i18n="amount">الكمية (لتر)</label><input type="number" id="ex-amount"></div>
+            <div class="form-group"><label data-i18n="reason">السبب</label><textarea id="ex-reason"></textarea></div>
+            <button class="btn btn-primary btn-block" onclick="app.submitExtraFuel()" data-i18n="submit">إرسال الطلب</button>
+            <div style="margin-top: 15px; text-align: center;">
+                <button class="btn btn-secondary" onclick="app.goHome()" data-i18n="home">الرئيسية</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast"></div>
+
+    <!-- Fullscreen Loader -->
+    <div id="loader" class="hidden">
+        <div class="spinner"></div>
+        <div id="loader-text" data-i18n="loading">جاري التحميل...</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // Configuration & State
+        // ==========================================
+        const CONFIG = {
+            // قم بتغيير هذه القيم بروابط الـ Supabase الخاصة بك
+            SUPABASE_URL: 'YOUR_SUPABASE_URL', 
+            SUPABASE_KEY: 'YOUR_SUPABASE_ANON_KEY'
+        };
+
+        const supabaseClient = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+
+        const state = {
+            user: null,
+            lang: 'ar',
+            theme: 'light',
+            location: null,
+            fueling: {
+                step: 0,
+                token: '',
+                data: {}
+            },
+            stream: null,
+            mediaRecorder: null,
+            recordedChunks: []
+        };
+
+        const i18n = {
+            ar: {
+                app_title: 'نظام إدارة الوقود', login: 'تسجيل الدخول', username: 'اسم المستخدم', password: 'كلمة المرور',
+                login_btn: 'دخول', register_new_rep: 'تسجيل مندوب جديد', request_extra_fuel: 'طلب وقود إضافي',
+                fullname: 'الاسم الكامل', plate: 'رقم اللوحة', project: 'المشروع', register_btn: 'تسجيل',
+                back_to_login: 'العودة لتسجيل الدخول', welcome_rep: 'مرحباً', start_fueling: 'بدء عملية التعبئة',
+                request_extra: 'طلب وقود إضافي', admin_panel: 'لوحة تحكم الإدارة', reps: 'المندوبين',
+                operations: 'عمليات التعبئة', extra_fuel: 'الوقود الإضافي', duplicates: 'محاولات التلاعب',
+                export_excel: 'تصدير Excel', amount: 'الكمية (لتر)', reason: 'السبب', submit: 'إرسال', home: 'الرئيسية',
+                gps_waiting: 'جاري البحث عن الموقع...', gps_found: 'تم تحديد الموقع بنجاح', capture: 'التقاط',
+                stop_recording: 'إيقاف التسجيل', loading: 'جاري التحميل...', step1: '1. صورة اللوحة قبل التعبئة',
+                step2: '2. صورة العداد قبل', step3: '3. فيديو أثناء التعبئة', step4: '4. صورة شاشة المضخة',
+                step5: '5. صورة العداد بعد', step6: '6. صورة اللوحة بعد', error_empty: 'الرجاء تعبئة جميع الحقول',
+                error_login: 'بيانات الدخول خاطئة', dup_media: 'تم اكتشاف تلاعب! الصورة مكررة مسبقاً في النظام.', success: 'تمت العملية بنجاح'
+            },
+            en: {
+                app_title: 'Fuel Management', login: 'Login', username: 'Username', password: 'Password',
+                login_btn: 'Login', register_new_rep: 'Register New Rep', request_extra_fuel: 'Request Extra Fuel',
+                fullname: 'Full Name', plate: 'Plate Number', project: 'Project', register_btn: 'Register',
+                back_to_login: 'Back to Login', welcome_rep: 'Welcome', start_fueling: 'Start Fueling',
+                request_extra: 'Request Extra Fuel', admin_panel: 'Admin Panel', reps: 'Representatives',
+                operations: 'Operations', extra_fuel: 'Extra Fuel', duplicates: 'Fraud Attempts',
+                export_excel: 'Export Excel', amount: 'Amount (Liters)', reason: 'Reason', submit: 'Submit', home: 'Home',
+                gps_waiting: 'Waiting for GPS...', gps_found: 'Location found', capture: 'Capture',
+                stop_recording: 'Stop Recording', loading: 'Loading...', step1: '1. Plate Before',
+                step2: '2. Odometer Before', step3: '3. Fueling Video', step4: '4. Pump Display',
+                step5: '5. Odometer After', step6: '6. Plate After', error_empty: 'Please fill all fields',
+                error_login: 'Invalid credentials', dup_media: 'Tampering Detected! Duplicate media.', success: 'Operation successful'
+            }
+        };
+
+        // ==========================================
+        // Utility Functions
+        // ==========================================
+        const app = {
+            init() {
+                this.updateUI();
+                const storedUser = localStorage.getItem('fuel_user');
+                if (storedUser) {
+                    state.user = JSON.parse(storedUser);
+                    this.routeBasedOnRole();
+                } else {
+                    this.showView('auth-view');
+                }
+            },
+
+            showLoading(show = true) { document.getElementById('loader').classList.toggle('hidden', !show); },
+            showToast(msgKey, isDirect = false) {
+                const toast = document.getElementById('toast');
+                toast.textContent = isDirect ? msgKey : (i18n[state.lang][msgKey] || msgKey);
+                toast.style.opacity = 1;
+                setTimeout(() => { toast.style.opacity = 0; }, 3000);
+            },
+
+            toggleTheme() {
+                state.theme = state.theme === 'light' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', state.theme);
+            },
+
+            toggleLanguage() {
+                state.lang = state.lang === 'ar' ? 'en' : 'ar';
+                document.documentElement.setAttribute('dir', state.lang === 'ar' ? 'rtl' : 'ltr');
+                document.documentElement.setAttribute('lang', state.lang);
+                this.updateUI();
+            },
+
+            updateUI() {
+                document.querySelectorAll('[data-i18n]').forEach(el => {
+                    const key = el.getAttribute('data-i18n');
+                    if (i18n[state.lang][key]) el.textContent = i18n[state.lang][key];
+                });
+            },
+
+            showView(viewId) {
+                ['auth-view', 'register-view', 'rep-view', 'admin-view', 'fueling-view', 'extra-fuel-public-view'].forEach(id => {
+                    document.getElementById(id).classList.add('hidden');
+                });
+                document.getElementById(viewId).classList.remove('hidden');
+                document.getElementById('logout-btn').classList.toggle('hidden', !state.user);
+            },
+
+            routeBasedOnRole() {
+                if (!state.user) return this.showView('auth-view');
+                if (state.user.role === 'admin') {
+                    this.showView('admin-view');
+                    this.loadAdminData();
+                } else {
+                    document.getElementById('rep-info').textContent = `${state.user.fullname} - لوحة: ${state.user.plate}`;
+                    this.showView('rep-view');
+                }
+            },
+
+            goHome() {
+                if (state.user) this.routeBasedOnRole();
+                else this.showView('auth-view');
+            },
+
+            async hashPassword(str) {
+                const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+                return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+            },
+
+            async hashFile(blob) {
+                const buffer = await blob.arrayBuffer();
+                const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+                return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+            },
+
+            // ==========================================
+            // Auth
+            // ==========================================
+            async login() {
+                const u = document.getElementById('login-username').value.trim();
+                const p = document.getElementById('login-password').value.trim();
+                if (!u || !p) return this.showToast('error_empty');
+                
+                this.showLoading(true);
+                try {
+                    const hashedP = await this.hashPassword(p);
+                    const { data, error } = await supabaseClient.from('users').select('*').eq('username', u).eq('password', hashedP).single();
+                    if (error || !data) throw new Error('Invalid');
+                    state.user = data;
+                    localStorage.setItem('fuel_user', JSON.stringify(data));
+                    this.routeBasedOnRole();
+                } catch (e) {
+                    this.showToast('error_login');
+                }
+                this.showLoading(false);
+            },
+
+            async register() {
+                const f = document.getElementById('reg-fullname').value.trim();
+                const u = document.getElementById('reg-username').value.trim();
+                const p = document.getElementById('reg-password').value.trim();
+                const pl = document.getElementById('reg-plate').value.trim();
+                const pr = document.getElementById('reg-project').value.trim();
+                if (!f || !u || !p || !pl || !pr) return this.showToast('error_empty');
+
+                this.showLoading(true);
+                try {
+                    const hashedP = await this.hashPassword(p);
+                    const { error } = await supabaseClient.from('users').insert([{ fullname: f, username: u, password: hashedP, plate: pl, project: pr }]);
+                    if (error) throw error;
+                    this.showToast('success');
+                    this.showView('auth-view');
+                } catch (e) {
+                    this.showToast(e.message, true);
+                }
+                this.showLoading(false);
+            },
+
+            logout() {
+                state.user = null;
+                localStorage.removeItem('fuel_user');
+                this.showView('auth-view');
+            },
+
+            // ==========================================
+            // Extra Fuel
+            // ==========================================
+            async submitExtraFuel() {
+                const p = document.getElementById('ex-plate').value.trim();
+                const a = document.getElementById('ex-amount').value.trim();
+                const r = document.getElementById('ex-reason').value.trim();
+                if (!p || !a) return this.showToast('error_empty');
+                
+                this.showLoading(true);
+                const { error } = await supabaseClient.from('extra_fuel_requests').insert([{ plate: p, amount: a, reason: r }]);
+                this.showLoading(false);
+                if (error) this.showToast('Error', true);
+                else {
+                    this.showToast('success');
+                    document.getElementById('ex-plate').value = '';
+                    document.getElementById('ex-amount').value = '';
+                    document.getElementById('ex-reason').value = '';
+                    this.goHome();
+                }
+            },
+
+            // ==========================================
+            // Fueling Wizard
+            // ==========================================
+            stepsDef: ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'],
+            dbFields: ['plate_before_url', 'odometer_before_url', 'fueling_video_url', 'pump_display_url', 'odometer_after_url', 'plate_after_url'],
+
+            async startFueling() {
+                state.fueling.step = 0;
+                state.fueling.token = 'OP-' + Date.now() + Math.floor(Math.random()*1000);
+                state.fueling.data = {};
+                this.showView('fueling-view');
+                this.updateFuelingUI();
+                await this.initGPS();
+            },
+
+            updateFuelingUI() {
+                document.getElementById('fueling-step-title').textContent = i18n[state.lang][this.stepsDef[state.fueling.step]];
+                const isVideo = state.fueling.step === 2; // Step 3 (index 2) is video
+                document.getElementById('capture-btn').classList.toggle('hidden', isVideo);
+                
+                if(isVideo) {
+                    document.getElementById('capture-btn').classList.remove('hidden');
+                    document.getElementById('capture-btn').textContent = "بدء تسجيل الفيديو";
+                    document.getElementById('capture-btn').onclick = () => this.startRecording();
+                } else {
+                    document.getElementById('capture-btn').textContent = i18n[state.lang].capture;
+                    document.getElementById('capture-btn').onclick = () => this.captureStep();
+                }
+            },
+
+            async initGPS() {
+                if (!navigator.geolocation) { alert("GPS غير مدعوم في جهازك"); return; }
+                navigator.geolocation.getCurrentPosition(
+                    pos => {
+                        state.location = pos.coords;
+                        document.getElementById('gps-status').textContent = i18n[state.lang].gps_found;
+                        document.getElementById('gps-status').style.color = 'var(--success)';
+                        document.getElementById('capture-btn').disabled = false;
+                        this.initCamera();
+                    },
+                    err => {
+                        alert("لا يمكن بدء التعبئة بدون تفعيل موقع الـ GPS والموافقة عليه.");
+                        this.goHome();
+                    }, { enableHighAccuracy: true }
+                );
+            },
+
+            async initCamera() {
+                try {
+                    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+                    // إجبار الكاميرا الخلفية عبر (environment)
+                    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                    document.getElementById('camera-feed').srcObject = state.stream;
+                } catch (e) {
+                    alert("يجب إعطاء الصلاحية للكاميرا لالتقاط الصور والفيديو.");
+                    this.goHome();
+                }
+            },
+
+            async captureStep() {
+                this.showLoading(true);
+                const video = document.getElementById('camera-feed');
+                const canvas = document.getElementById('watermark-canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Add Watermark
+                const wmText = [
+                    `Token: ${state.fueling.token}`,
+                    `Proj: ${state.user.project} | Plate: ${state.user.plate}`,
+                    `Date: ${new Date().toLocaleString()}`,
+                    `Loc: ${state.location.latitude.toFixed(6)}, ${state.location.longitude.toFixed(6)}`
+                ];
+                // خلفية شفافة تحت العلامة المائية للوضوح
+                ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                ctx.fillRect(10, 10, canvas.width - 20, 120);
+                
+                ctx.fillStyle = "white";
+                ctx.font = "20px Arial";
+                wmText.forEach((txt, i) => ctx.fillText(txt, 20, 40 + (i * 25)));
+
+                canvas.toBlob(async blob => {
+                    await this.processMedia(blob, 'image/jpeg');
+                }, 'image/jpeg', 0.8);
+            },
+
+            startRecording() {
+                state.recordedChunks = [];
+                state.mediaRecorder = new MediaRecorder(state.stream);
+                state.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) state.recordedChunks.push(e.data); };
+                state.mediaRecorder.onstop = async () => {
+                    const blob = new Blob(state.recordedChunks, { type: 'video/webm' });
+                    await this.processMedia(blob, 'video/webm');
+                };
+                state.mediaRecorder.start();
+                document.getElementById('capture-btn').classList.add('hidden');
+                document.getElementById('stop-record-btn').classList.remove('hidden');
+            },
+
+            stopRecording() {
+                state.mediaRecorder.stop();
+                this.showLoading(true);
+                document.getElementById('stop-record-btn').classList.add('hidden');
+            },
+
+            async processMedia(blob, mimeType) {
+                try {
+                    const hash = await this.hashFile(blob);
+                    
+                    // Check duplicate Hash to prevent tampering
+                    const { data: dupData } = await supabaseClient.from('media_hashes').select('id').eq('hash', hash).single();
+                    
+                    if (dupData) {
+                        // Log fraud attempt
+                        await supabaseClient.from('duplicate_attempts').insert([{ 
+                            rep_name: state.user.fullname, 
+                            plate: state.user.plate, 
+                            step: this.stepsDef[state.fueling.step],
+                            media_url: 'BLOCKED'
+                        }]);
+                        this.showLoading(false);
+                        this.showToast('dup_media');
+                        return; // Block advancement
+                    }
+
+                    // Save hash
+                    await supabaseClient.from('media_hashes').insert([{ hash }]);
+
+                    // Upload file
+                    const isVideo = mimeType.includes('video');
+                    const bucket = isVideo ? 'fuel-videos' : 'fuel-images';
+                    const ext = isVideo ? 'webm' : 'jpg';
+                    const filename = `${state.fueling.token}_step${state.fueling.step}_${Date.now()}.${ext}`;
+                    
+                    const { data: uploadData, error } = await supabaseClient.storage.from(bucket).upload(filename, blob);
+                    if (error) throw error;
+                    
+                    const { data: publicUrlData } = supabaseClient.storage.from(bucket).getPublicUrl(filename);
+                    
+                    // Save URL to state mapping
+                    state.fueling.data[this.dbFields[state.fueling.step]] = publicUrlData.publicUrl;
+
+                    this.nextStep();
+                } catch (e) {
+                    this.showLoading(false);
+                    this.showToast('Error saving media: ' + e.message, true);
+                }
+            },
+
+            async nextStep() {
+                state.fueling.step++;
+                if (state.fueling.step > 5) {
+                    await this.finishFueling();
+                } else {
+                    this.showLoading(false);
+                    this.updateFuelingUI();
+                }
+            },
+
+            async finishFueling() {
+                const now = new Date();
+                const payload = {
+                    token: state.fueling.token,
+                    rep_id: state.user.id,
+                    rep_name: state.user.fullname,
+                    project: state.user.project,
+                    plate: state.user.plate,
+                    fuel_type: state.user.fuel_type || 'Gasoline',
+                    date: now.toISOString().split('T')[0],
+                    time: now.toTimeString().split(' ')[0],
+                    latitude: state.location.latitude.toString(),
+                    longitude: state.location.longitude.toString(),
+                    ...state.fueling.data
+                };
+                
+                await supabaseClient.from('fuel_operations').insert([payload]);
+                
+                if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+                this.showLoading(false);
+                this.showToast('success');
+                this.goHome();
+            },
+
+            // ==========================================
+            // Admin Panel
+            // ==========================================
+            switchAdminTab(tab) {
+                document.querySelectorAll('.admin-tab').forEach(el => el.classList.add('hidden'));
+                document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+                document.getElementById('tab-' + tab).classList.remove('hidden');
+                event.target.classList.add('active');
+            },
+
+            async loadAdminData() {
+                this.showLoading(true);
+                // 1. Reps
+                const { data: reps } = await supabaseClient.from('users').select('*').eq('role', 'rep');
+                document.getElementById('tbody-reps').innerHTML = (reps||[]).map(r => `<tr><td>${r.id.substring(0,8)}</td><td>${r.fullname}</td><td>${r.username}</td><td>${r.plate}</td><td><button class="btn btn-danger" onclick="app.deleteRep('${r.id}')">حذف</button></td></tr>`).join('');
+                
+                // 2. Ops
+                const { data: ops } = await supabaseClient.from('fuel_operations').select('*').order('created_at', { ascending: false });
+                document.getElementById('tbody-ops').innerHTML = (ops||[]).map(o => `<tr><td>${o.token}</td><td>${o.rep_name}</td><td>${o.plate}</td><td>${o.date} ${o.time}</td><td><a href="https://maps.google.com/?q=${o.latitude},${o.longitude}" target="_blank">رابط الخريطة</a></td><td>
+                    <a href="${o.plate_before_url}" target="_blank">L-B</a> | 
+                    <a href="${o.odometer_before_url}" target="_blank">O-B</a> | 
+                    <a href="${o.fueling_video_url}" target="_blank">V</a> | 
+                    <a href="${o.pump_display_url}" target="_blank">P</a> | 
+                    <a href="${o.odometer_after_url}" target="_blank">O-A</a> | 
+                    <a href="${o.plate_after_url}" target="_blank">L-A</a>
+                </td></tr>`).join('');
+                
+                // 3. Extra Fuel Requests
+                const { data: extra } = await supabaseClient.from('extra_fuel_requests').select('*').order('created_at', { ascending: false });
+                document.getElementById('tbody-extra').innerHTML = (extra||[]).map(e => `<tr><td>${e.plate}</td><td>${e.amount}</td><td>${e.reason}</td><td>${e.status}</td><td>${e.status==='pending'?`<button class="btn btn-primary" onclick="app.updateExtra('${e.id}', 'approved')">قبول</button> <button class="btn btn-danger" onclick="app.updateExtra('${e.id}', 'rejected')">رفض</button>`:''}</td></tr>`).join('');
+                
+                // 4. Duplicate/Fraud Attempts
+                const { data: dups } = await supabaseClient.from('duplicate_attempts').select('*').order('created_at', { ascending: false });
+                document.getElementById('tbody-duplicates').innerHTML = (dups||[]).map(d => `<tr><td>${d.rep_name}</td><td>${d.plate}</td><td>${d.step}</td><td>${new Date(d.created_at).toLocaleString()}</td></tr>`).join('');
+                
+                this.showLoading(false);
+            },
+
+            async deleteRep(id) {
+                if(!confirm("هل أنت متأكد من حذف هذا المندوب؟")) return;
+                await supabaseClient.from('users').delete().eq('id', id);
+                this.loadAdminData();
+            },
+
+            async updateExtra(id, status) {
+                await supabaseClient.from('extra_fuel_requests').update({ status }).eq('id', id);
+                this.loadAdminData();
+            },
+
+            exportTable(tableId, filename) {
+                const table = document.getElementById(tableId);
+                const wb = XLSX.utils.table_to_book(table, { sheet: "Sheet JS" });
+                XLSX.writeFile(wb, `${filename}_${new Date().getTime()}.xlsx`);
+            }
+        };
+
+        window.onload = () => app.init();
+    </script>
+</body>
+</html>
