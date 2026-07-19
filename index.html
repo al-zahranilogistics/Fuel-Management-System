@@ -125,6 +125,7 @@
                 <h2 data-i18n="welcome_rep">مرحباً مندوب</h2>
                 <p id="rep-info"></p>
                 <button class="btn btn-primary" onclick="app.startFueling()" data-i18n="start_fueling">بدء عملية التعبئة</button>
+                <button class="btn btn-secondary" onclick="app.showView('extra-fuel-public-view')" data-i18n="request_extra">طلب وقود إضافي</button>
             </div>
         </div>
 
@@ -218,6 +219,7 @@
         // Configuration & State
         // ==========================================
         const CONFIG = {
+            // قم بتغيير هذه القيم بروابط الـ Supabase الخاصة بك
             SUPABASE_URL: 'https://hccvzlluhvuafyzodkie.supabase.co', 
             SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjY3Z6bGx1aHZ1YWZ5em9ka2llIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0MzUyNTcsImV4cCI6MjEwMDAxMTI1N30.mlP9s3Qe4AMRlBS337W--jLjb32dzuwVLrxK0-yOn6Q'
         };
@@ -348,7 +350,7 @@
             },
 
             // ==========================================
-            // Auth (متوافق مع جدول users وكلمة المرور SHA-256)
+            // Auth
             // ==========================================
             async login() {
                 const u = document.getElementById('login-username').value.trim();
@@ -397,7 +399,7 @@
             },
 
             // ==========================================
-            // Extra Fuel (متوافق مع extra_fuel_requests)
+            // Extra Fuel
             // ==========================================
             async submitExtraFuel() {
                 const p = document.getElementById('ex-plate').value.trim();
@@ -419,7 +421,7 @@
             },
 
             // ==========================================
-            // Fueling Wizard (متوافق مع fuel_operations وجميع الأعمدة المطلوبة)
+            // Fueling Wizard
             // ==========================================
             stepsDef: ['step1', 'step2', 'step3', 'step4', 'step5', 'step6'],
             dbFields: ['plate_before_url', 'odometer_before_url', 'fueling_video_url', 'pump_display_url', 'odometer_after_url', 'plate_after_url'],
@@ -435,7 +437,7 @@
 
             updateFuelingUI() {
                 document.getElementById('fueling-step-title').textContent = i18n[state.lang][this.stepsDef[state.fueling.step]];
-                const isVideo = state.fueling.step === 2;
+                const isVideo = state.fueling.step === 2; // Step 3 (index 2) is video
                 document.getElementById('capture-btn').classList.toggle('hidden', isVideo);
                 
                 if(isVideo) {
@@ -468,58 +470,44 @@
             async initCamera() {
                 try {
                     if (state.stream) state.stream.getTracks().forEach(t => t.stop());
-                    // استخدام الكاميرا الخلفية بشكل مثالي
-                    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+                    // إجبار الكاميرا الخلفية عبر (environment)
+                    state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
                     document.getElementById('camera-feed').srcObject = state.stream;
                 } catch (e) {
                     alert("يجب إعطاء الصلاحية للكاميرا لالتقاط الصور والفيديو.");
                     this.goHome();
                 }
             },
-// استبدل دالة الـ capture الموجودة عندك بهذا الكود بالكامل:
-async capture() {
-    try {
-        console.log("جاري الالتقاط...");
-        
-        const video = document.getElementById('camera-feed');
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        
-        // تحويل الصورة إلى Blob للرفع
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
-        const fileName = `fuel_${Date.now()}.jpg`;
 
-        // 1. رفع الصورة للـ Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('fuel-images')
-            .upload(fileName, blob);
+            async captureStep() {
+                this.showLoading(true);
+                const video = document.getElementById('camera-feed');
+                const canvas = document.getElementById('watermark-canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Add Watermark
+                const wmText = [
+                    `Token: ${state.fueling.token}`,
+                    `Proj: ${state.user.project} | Plate: ${state.user.plate}`,
+                    `Date: ${new Date().toLocaleString()}`,
+                    `Loc: ${state.location.latitude.toFixed(6)}, ${state.location.longitude.toFixed(6)}`
+                ];
+                // خلفية شفافة تحت العلامة المائية للوضوح
+                ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+                ctx.fillRect(10, 10, canvas.width - 20, 120);
+                
+                ctx.fillStyle = "white";
+                ctx.font = "20px Arial";
+                wmText.forEach((txt, i) => ctx.fillText(txt, 20, 40 + (i * 25)));
 
-        if (uploadError) throw uploadError;
+                canvas.toBlob(async blob => {
+                    await this.processMedia(blob, 'image/jpeg');
+                }, 'image/jpeg', 0.8);
+            },
 
-        // 2. الحصول على الرابط العام
-        const { data: { publicUrl } } = supabase.storage
-            .from('fuel-images')
-            .getPublicUrl(fileName);
-
-        // 3. حفظ الرابط في جدول fuel_operations
-        // ملاحظة: تأكد من أنك تملك الـ id الخاص بالعملية (token أو id)
-        const { error: dbError } = await supabase
-            .from('fuel_operations')
-            .update({ plate_before_url: publicUrl }) // مثال: حفظ في حقل plate_before_url
-            .eq('token', 'TOKEN_هنا'); // استبدل بـ Token العملية الحالي
-
-        if (dbError) throw dbError;
-
-        alert("تم الحفظ بنجاح!");
-        console.log("تمت العملية بنجاح:", publicUrl);
-
-    } catch (err) {
-        console.error("حدث خطأ أثناء الالتقاط أو الحفظ:", err);
-        alert("خطأ: " + err.message);
-    }
-}
             startRecording() {
                 state.recordedChunks = [];
                 state.mediaRecorder = new MediaRecorder(state.stream);
@@ -543,8 +531,11 @@ async capture() {
                 try {
                     const hash = await this.hashFile(blob);
                     
+                    // Check duplicate Hash to prevent tampering
                     const { data: dupData } = await supabaseClient.from('media_hashes').select('id').eq('hash', hash).single();
+                    
                     if (dupData) {
+                        // Log fraud attempt
                         await supabaseClient.from('duplicate_attempts').insert([{ 
                             rep_name: state.user.fullname, 
                             plate: state.user.plate, 
@@ -553,20 +544,24 @@ async capture() {
                         }]);
                         this.showLoading(false);
                         this.showToast('dup_media');
-                        return;
+                        return; // Block advancement
                     }
 
+                    // Save hash
                     await supabaseClient.from('media_hashes').insert([{ hash }]);
 
-                    // ✅ تم التعديل: استخدام bucket واحد فقط "fuel-images" لكل الملفات
-                    const bucket = 'fuel-images';
-                    const ext = mimeType.includes('video') ? 'webm' : 'jpg';
+                    // Upload file
+                    const isVideo = mimeType.includes('video');
+                    const bucket = isVideo ? 'fuel-videos' : 'fuel-images';
+                    const ext = isVideo ? 'webm' : 'jpg';
                     const filename = `${state.fueling.token}_step${state.fueling.step}_${Date.now()}.${ext}`;
                     
-                    const { error } = await supabaseClient.storage.from(bucket).upload(filename, blob);
+                    const { data: uploadData, error } = await supabaseClient.storage.from(bucket).upload(filename, blob);
                     if (error) throw error;
                     
                     const { data: publicUrlData } = supabaseClient.storage.from(bucket).getPublicUrl(filename);
+                    
+                    // Save URL to state mapping
                     state.fueling.data[this.dbFields[state.fueling.step]] = publicUrlData.publicUrl;
 
                     this.nextStep();
@@ -588,7 +583,6 @@ async capture() {
 
             async finishFueling() {
                 const now = new Date();
-                // ✅ الحقول مطابقة تمامًا لجدول fuel_operations
                 const payload = {
                     token: state.fueling.token,
                     rep_id: state.user.id,
@@ -623,9 +617,11 @@ async capture() {
 
             async loadAdminData() {
                 this.showLoading(true);
+                // 1. Reps
                 const { data: reps } = await supabaseClient.from('users').select('*').eq('role', 'rep');
                 document.getElementById('tbody-reps').innerHTML = (reps||[]).map(r => `<tr><td>${r.id.substring(0,8)}</td><td>${r.fullname}</td><td>${r.username}</td><td>${r.plate}</td><td><button class="btn btn-danger" onclick="app.deleteRep('${r.id}')">حذف</button></td></tr>`).join('');
                 
+                // 2. Ops
                 const { data: ops } = await supabaseClient.from('fuel_operations').select('*').order('created_at', { ascending: false });
                 document.getElementById('tbody-ops').innerHTML = (ops||[]).map(o => `<tr><td>${o.token}</td><td>${o.rep_name}</td><td>${o.plate}</td><td>${o.date} ${o.time}</td><td><a href="https://maps.google.com/?q=${o.latitude},${o.longitude}" target="_blank">رابط الخريطة</a></td><td>
                     <a href="${o.plate_before_url}" target="_blank">L-B</a> | 
@@ -636,9 +632,11 @@ async capture() {
                     <a href="${o.plate_after_url}" target="_blank">L-A</a>
                 </td></tr>`).join('');
                 
+                // 3. Extra Fuel Requests
                 const { data: extra } = await supabaseClient.from('extra_fuel_requests').select('*').order('created_at', { ascending: false });
                 document.getElementById('tbody-extra').innerHTML = (extra||[]).map(e => `<tr><td>${e.plate}</td><td>${e.amount}</td><td>${e.reason}</td><td>${e.status}</td><td>${e.status==='pending'?`<button class="btn btn-primary" onclick="app.updateExtra('${e.id}', 'approved')">قبول</button> <button class="btn btn-danger" onclick="app.updateExtra('${e.id}', 'rejected')">رفض</button>`:''}</td></tr>`).join('');
                 
+                // 4. Duplicate/Fraud Attempts
                 const { data: dups } = await supabaseClient.from('duplicate_attempts').select('*').order('created_at', { ascending: false });
                 document.getElementById('tbody-duplicates').innerHTML = (dups||[]).map(d => `<tr><td>${d.rep_name}</td><td>${d.plate}</td><td>${d.step}</td><td>${new Date(d.created_at).toLocaleString()}</td></tr>`).join('');
                 
