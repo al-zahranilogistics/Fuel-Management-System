@@ -476,33 +476,50 @@
                     this.goHome();
                 }
             },
+// استبدل دالة الـ capture الموجودة عندك بهذا الكود بالكامل:
+async capture() {
+    try {
+        console.log("جاري الالتقاط...");
+        
+        const video = document.getElementById('camera-feed');
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        
+        // تحويل الصورة إلى Blob للرفع
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+        const fileName = `fuel_${Date.now()}.jpg`;
 
-            async captureStep() {
-                this.showLoading(true);
-                const video = document.getElementById('camera-feed');
-                const canvas = document.getElementById('watermark-canvas');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                
-                const wmText = [
-                    `Token: ${state.fueling.token}`,
-                    `Proj: ${state.user.project} | Plate: ${state.user.plate}`,
-                    `Date: ${new Date().toLocaleString()}`,
-                    `Loc: ${state.location.latitude.toFixed(6)}, ${state.location.longitude.toFixed(6)}`
-                ];
-                ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-                ctx.fillRect(10, 10, canvas.width - 20, 120);
-                ctx.fillStyle = "white";
-                ctx.font = "20px Arial";
-                wmText.forEach((txt, i) => ctx.fillText(txt, 20, 40 + (i * 25)));
+        // 1. رفع الصورة للـ Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('fuel-images')
+            .upload(fileName, blob);
 
-                canvas.toBlob(async blob => {
-                    await this.processMedia(blob, 'image/jpeg');
-                }, 'image/jpeg', 0.8);
-            },
+        if (uploadError) throw uploadError;
 
+        // 2. الحصول على الرابط العام
+        const { data: { publicUrl } } = supabase.storage
+            .from('fuel-images')
+            .getPublicUrl(fileName);
+
+        // 3. حفظ الرابط في جدول fuel_operations
+        // ملاحظة: تأكد من أنك تملك الـ id الخاص بالعملية (token أو id)
+        const { error: dbError } = await supabase
+            .from('fuel_operations')
+            .update({ plate_before_url: publicUrl }) // مثال: حفظ في حقل plate_before_url
+            .eq('token', 'TOKEN_هنا'); // استبدل بـ Token العملية الحالي
+
+        if (dbError) throw dbError;
+
+        alert("تم الحفظ بنجاح!");
+        console.log("تمت العملية بنجاح:", publicUrl);
+
+    } catch (err) {
+        console.error("حدث خطأ أثناء الالتقاط أو الحفظ:", err);
+        alert("خطأ: " + err.message);
+    }
+}
             startRecording() {
                 state.recordedChunks = [];
                 state.mediaRecorder = new MediaRecorder(state.stream);
